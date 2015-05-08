@@ -1,4 +1,4 @@
-package com.vineet.certificatetest;
+package com.vineet.minassltest;
 
 import android.app.Application;
 import android.test.ApplicationTestCase;
