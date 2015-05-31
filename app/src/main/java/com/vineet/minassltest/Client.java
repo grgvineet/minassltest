@@ -70,7 +70,7 @@ public class Client extends ActionBarActivity {
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        final ConnectFuture future = socketConnector.connect(new InetSocketAddress(remoteAddress.getText().toString(), Integer.parseInt(port.getText().toString())));
+                        final ConnectFuture future = socketConnector.connect(new InetSocketAddress("192.168.1." + remoteAddress.getText().toString(), Integer.parseInt(port.getText().toString())));
                         future.awaitUninterruptibly();
                         if (future.isConnected()) {
                             runOnUiThread(new Runnable() {
@@ -113,7 +113,14 @@ public class Client extends ActionBarActivity {
             @Override
             public void onClick(View view) {
                 if (ioSession != null) {
-                    ioSession.write(textToSend.getText().toString());
+                    Thread thread = new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            ioSession.write(textToSend.getText().toString());
+                        }
+                    });
+                    thread.start();
+
                 }
             }
         });
