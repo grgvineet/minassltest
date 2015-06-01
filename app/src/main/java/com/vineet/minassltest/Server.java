@@ -50,24 +50,27 @@ public class Server extends ActionBarActivity {
         messageReceived = (TextView)findViewById(R.id.tvSMessageReceived);
 
         unbind.setEnabled(false);
-
-        acceptor = new NioSocketAcceptor();
-        acceptor.setHandler(tcpHandler);
-        acceptor.getSessionConfig().setKeepAlive(true);
-        acceptor.getSessionConfig().setReuseAddress(true);
-        TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
-        textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
-        acceptor.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Server.this, false));
-        acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
+        send.setEnabled(false);
 
         bind.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 try{
                     if (!binded) {
+
+                        acceptor = new NioSocketAcceptor();
+                        acceptor.setHandler(tcpHandler);
+                        acceptor.getSessionConfig().setKeepAlive(true);
+                        acceptor.getSessionConfig().setReuseAddress(true);
+                        TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
+                        textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
+                        acceptor.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Server.this, false));
+                        acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
+
                         acceptor.bind(new InetSocketAddress(Integer.parseInt(port.getText().toString())));
                         bind.setEnabled(false);
                         unbind.setEnabled(true);
+                        send.setEnabled(true);
                         binded = true;
                     }
                 }catch (Exception e){
@@ -82,8 +85,10 @@ public class Server extends ActionBarActivity {
             public void onClick(View view) {
                 if (binded) {
                     acceptor.unbind();
+                    acceptor.dispose();
                     bind.setEnabled(true);
                     unbind.setEnabled(false);
+                    send.setEnabled(false);
                     binded = false;
                 }
             }

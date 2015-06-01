@@ -12,6 +12,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.apache.mina.core.future.ConnectFuture;
+import org.apache.mina.core.future.IoFuture;
+import org.apache.mina.core.future.IoFutureListener;
+import org.apache.mina.core.future.WriteFuture;
 import org.apache.mina.core.service.IoHandler;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IdleStatus;
@@ -51,15 +54,6 @@ public class Client extends ActionBarActivity {
 
         disconnect.setEnabled(false);
 
-        socketConnector = new NioSocketConnector();
-        socketConnector.setHandler(tcpHandler);
-        socketConnector.getSessionConfig().setKeepAlive(true);
-        //TextLineCodecFactory will buffer incoming data and emit a message very time it finds a \n
-        final TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
-        textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
-        socketConnector.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Client.this, true));
-        socketConnector.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
-
         connect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -67,28 +61,52 @@ public class Client extends ActionBarActivity {
                 connect.setEnabled(false);
                 disconnect.setEnabled(true);
 
+                socketConnector = new NioSocketConnector();
+                socketConnector.setHandler(tcpHandler);
+                socketConnector.getSessionConfig().setKeepAlive(true);
+                //TextLineCodecFactory will buffer incoming data and emit a message very time it finds a \n
+                final TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
+                textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
+                socketConnector.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Client.this, true));
+                socketConnector.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
+
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
                         final ConnectFuture future = socketConnector.connect(new InetSocketAddress("192.168.1." + remoteAddress.getText().toString(), Integer.parseInt(port.getText().toString())));
-                        future.awaitUninterruptibly();
-                        if (future.isConnected()) {
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Toast.makeText(Client.this, "Session connected", Toast.LENGTH_SHORT).show();
+                        future.addListener(new IoFutureListener<IoFuture>() {
+
+                            @Override
+                            public void operationComplete(IoFuture ioFuture) {
+                                try {
+                                    future.removeListener(this);
+                                    final IoSession session = ioFuture.getSession();
+                                    Log.i("KDE/LanLinkProvider", "Connection successful: " + session.isConnected());
+                                    if (session.isConnected()) {
+                                        runOnUiThread(new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                Toast.makeText(Client.this, "Session connected", Toast.LENGTH_SHORT).show();
+                                            }
+                                        });
+                                    }else{
+                                        runOnUiThread(new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                Toast.makeText(Client.this, "Can't connect", Toast.LENGTH_SHORT).show();
+                                                disconnect.setEnabled(false);
+                                                connect.setEnabled(true);
+                                            }
+                                        });
+                                    }
+
+                                } catch (Exception e) { //If we don't catch it here, Mina will swallow it :/
+                                    e.printStackTrace();
+                                    Log.e("KDE/LanLinkProvider", "sessionClosed exception");
                                 }
-                            });
-                        }else{
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Toast.makeText(Client.this, "Can't connect", Toast.LENGTH_SHORT).show();
-                                    disconnect.setEnabled(false);
-                                    connect.setEnabled(true);
-                                }
-                            });
-                        }
+                            }
+
+                        });
                     }
                 }).start();
 
@@ -102,9 +120,7 @@ public class Client extends ActionBarActivity {
                 disconnect.setEnabled(false);
                 connect.setEnabled(true);
 
-                if (ioSession != null) {
-                    ioSession.close(true);
-                }
+                socketConnector.dispose();
 
             }
         });
@@ -112,16 +128,17 @@ public class Client extends ActionBarActivity {
         send.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (ioSession != null) {
-                    Thread thread = new Thread(new Runnable() {
-                        @Override
-                        public void run() {
-                            ioSession.write(textToSend.getText().toString());
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        WriteFuture future = ioSession.write(textToSend.getText().toString());
+                        future.awaitUninterruptibly();
+                        if (!future.isWritten()) {
+                            Log.e("KDE/sendPackage", "!future.isWritten()");
+                            return;
                         }
-                    });
-                    thread.start();
-
-                }
+                    }
+                }).start();
             }
         });
 
