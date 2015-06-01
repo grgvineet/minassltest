@@ -80,9 +80,9 @@ public class SslFIlter {
                 filter.setUseClientMode(true);
             }else {
                 filter.setUseClientMode(false);
+                filter.setWantClientAuth(true);
             }
 
-            filter.setWantClientAuth(true);
             return filter;
         }catch (Exception e){
             e.printStackTrace();

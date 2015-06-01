@@ -1,5 +1,6 @@
 package com.vineet.minassltest;
 
+import android.support.v4.util.LongSparseArray;
 import android.support.v7.app.ActionBarActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -11,6 +12,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.apache.mina.core.future.WriteFuture;
 import org.apache.mina.core.service.IoHandler;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IdleStatus;
@@ -22,6 +24,8 @@ import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 
 public class Server extends ActionBarActivity {
@@ -33,7 +37,7 @@ public class Server extends ActionBarActivity {
     TextView messageReceived;
 
     NioSocketAcceptor acceptor;
-    IoSession ioSession;
+    HashMap<Long,IoSession> nioSessions = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,20 +56,20 @@ public class Server extends ActionBarActivity {
         unbind.setEnabled(false);
         send.setEnabled(false);
 
+        acceptor = new NioSocketAcceptor();
+        acceptor.setHandler(tcpHandler);
+        acceptor.getSessionConfig().setKeepAlive(true);
+        acceptor.getSessionConfig().setReuseAddress(true);
+        TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
+        textLineFactory.setDecoderMaxLineLength(512 * 1024); //Allow to receive up to 512kb of data
+        acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
+
+
         bind.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 try{
                     if (!binded) {
-
-                        acceptor = new NioSocketAcceptor();
-                        acceptor.setHandler(tcpHandler);
-                        acceptor.getSessionConfig().setKeepAlive(true);
-                        acceptor.getSessionConfig().setReuseAddress(true);
-                        TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
-                        textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
-                        acceptor.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Server.this, false));
-                        acceptor.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
 
                         acceptor.bind(new InetSocketAddress(Integer.parseInt(port.getText().toString())));
                         bind.setEnabled(false);
@@ -85,7 +89,7 @@ public class Server extends ActionBarActivity {
             public void onClick(View view) {
                 if (binded) {
                     acceptor.unbind();
-                    acceptor.dispose();
+//                    acceptor.dispose();
                     bind.setEnabled(true);
                     unbind.setEnabled(false);
                     send.setEnabled(false);
@@ -97,9 +101,19 @@ public class Server extends ActionBarActivity {
         send.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                    if (ioSession != null){
-                        ioSession.write(textToSend.getText().toString());
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        for (IoSession session : nioSessions.values()){
+                            WriteFuture future = session.write(textToSend.getText().toString());
+                            future.awaitUninterruptibly();
+                            if (!future.isWritten()) {
+                                Log.e("KDE/sendPackage", "!future.isWritten()");
+                                return;
+                            }
+                        }
                     }
+                }).start();
             }
         });
 
@@ -108,22 +122,27 @@ public class Server extends ActionBarActivity {
 
     private IoHandler tcpHandler = new IoHandlerAdapter() {
         @Override
-        public void sessionCreated(IoSession session) throws Exception {
-            Log.e("Session Connector", "Session created " + session.getId());
-
+        public void sessionCreated(final IoSession session) throws Exception {
+            Log.e("Server", "Session created " + session.getId());
+            session.getFilterChain().addFirst("sslFilter", SslFIlter.getSslFilter(Server.this, false));
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(Server.this,"Connected to :" + session.getRemoteAddress().toString(), Toast.LENGTH_LONG).show();
+                }
+            });
         }
 
         @Override
         public void sessionOpened(IoSession session) throws Exception {
-            Log.e("Session Connector", "Session opened " + session.getId());
-//            ((SslFilter)session.getFilterChain().get("sslFilter")).startSsl(session);
-            ioSession = session;
+            Log.e("Server", "Session opened " + session.getId());
+            nioSessions.put(session.getId(), session);
         }
 
         @Override
         public void sessionClosed(IoSession session) throws Exception {
-            Log.e("Session Connector", "Session closed " +  session.getId());
-            ioSession = null;
+            Log.e("Server", "Session closed " +  session.getId());
+            nioSessions.remove(session.getId());
         }
 
         @Override
@@ -140,7 +159,7 @@ public class Server extends ActionBarActivity {
         @Override
         public void messageReceived(IoSession session, Object message) throws Exception {
             final String receivedMessage = (String) message;
-            Log.e("Message received", message.toString());
+            Log.e("Server","Message Received :" + message.toString());
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -153,11 +172,17 @@ public class Server extends ActionBarActivity {
 
         @Override
         public void messageSent(IoSession session, Object message) throws Exception {
-            Log.e("Session Connector", "Message send " +  session.getId() + " " + (String)message );
+            Log.e("Server", "Message send " +  session.getId() + " " + (String)message );
         }
 
     };
 
+
+    @Override
+    public void finish() {
+        super.finish();
+        acceptor.dispose();
+    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {

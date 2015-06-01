@@ -53,6 +53,7 @@ public class Client extends ActionBarActivity {
         messageReceived = (TextView)findViewById(R.id.tvCMessageReceived);
 
         disconnect.setEnabled(false);
+        send.setEnabled(false);
 
         connect.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -60,14 +61,15 @@ public class Client extends ActionBarActivity {
 
                 connect.setEnabled(false);
                 disconnect.setEnabled(true);
+                send.setEnabled(true);
 
                 socketConnector = new NioSocketConnector();
                 socketConnector.setHandler(tcpHandler);
                 socketConnector.getSessionConfig().setKeepAlive(true);
+                socketConnector.getSessionConfig().setReuseAddress(true);
                 //TextLineCodecFactory will buffer incoming data and emit a message very time it finds a \n
                 final TextLineCodecFactory textLineFactory = new TextLineCodecFactory(Charset.defaultCharset(), LineDelimiter.UNIX, LineDelimiter.UNIX);
-                textLineFactory.setDecoderMaxLineLength(512*1024); //Allow to receive up to 512kb of data
-                socketConnector.getFilterChain().addLast("sslFilter", SslFIlter.getSslFilter(Client.this, true));
+                textLineFactory.setDecoderMaxLineLength(512 * 1024); //Allow to receive up to 512kb of data
                 socketConnector.getFilterChain().addLast("codec", new ProtocolCodecFilter(textLineFactory));
 
                 new Thread(new Runnable() {
@@ -81,7 +83,7 @@ public class Client extends ActionBarActivity {
                                 try {
                                     future.removeListener(this);
                                     final IoSession session = ioFuture.getSession();
-                                    Log.i("KDE/LanLinkProvider", "Connection successful: " + session.isConnected());
+                                    Log.i("Client", "Connection successful: " + session.isConnected());
                                     if (session.isConnected()) {
                                         runOnUiThread(new Runnable() {
                                             @Override
@@ -96,13 +98,14 @@ public class Client extends ActionBarActivity {
                                                 Toast.makeText(Client.this, "Can't connect", Toast.LENGTH_SHORT).show();
                                                 disconnect.setEnabled(false);
                                                 connect.setEnabled(true);
+                                                send.setEnabled(false);
                                             }
                                         });
                                     }
 
                                 } catch (Exception e) { //If we don't catch it here, Mina will swallow it :/
                                     e.printStackTrace();
-                                    Log.e("KDE/LanLinkProvider", "sessionClosed exception");
+                                    Log.e("Client", "sessionClosed exception");
                                 }
                             }
 
@@ -119,6 +122,7 @@ public class Client extends ActionBarActivity {
 
                 disconnect.setEnabled(false);
                 connect.setEnabled(true);
+                send.setEnabled(false);
 
                 socketConnector.dispose();
 
@@ -134,7 +138,7 @@ public class Client extends ActionBarActivity {
                         WriteFuture future = ioSession.write(textToSend.getText().toString());
                         future.awaitUninterruptibly();
                         if (!future.isWritten()) {
-                            Log.e("KDE/sendPackage", "!future.isWritten()");
+                            Log.e("Client", "!future.isWritten()");
                             return;
                         }
                     }
@@ -146,23 +150,28 @@ public class Client extends ActionBarActivity {
 
     private IoHandler tcpHandler = new IoHandlerAdapter() {
         @Override
-        public void sessionCreated(IoSession session) throws Exception {
-            Log.e("Session Acceptor", "Session created " + session.getId());
+        public void sessionCreated(final IoSession session) throws Exception {
+            Log.e("Client", "Session created " + session.getId());
             ioSession = session;
-            if (session.isConnected()){
-                Log.e("Session Acceptor", "Session is connected");
-            }
+            ioSession.getFilterChain().addFirst("sslFilter", SslFIlter.getSslFilter(Client.this,true));
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(Client.this, "Connected to :" + session.getRemoteAddress().toString(), Toast.LENGTH_LONG).show();
+                }
+            });
 
         }
 
         @Override
         public void sessionOpened(IoSession session) throws Exception {
-            Log.e("Session Acceptor", "Session opened " + session.getId());
+            Log.e("Client", "Session opened " + session.getId());
         }
 
         @Override
         public void sessionClosed(IoSession session) throws Exception {
-            Log.e("Session Acceptor", "Session closed " +  session.getId());
+            Log.e("Client", "Session closed " +  session.getId());
             ioSession = null;
         }
 
@@ -179,7 +188,7 @@ public class Client extends ActionBarActivity {
 
         @Override
         public void messageReceived(IoSession session, final Object message) throws Exception {
-            Log.e("Session acceptor", "Message received " + message.toString());
+            Log.e("Client", "Message received " + message.toString());
             final String receivedMessage = (String) message;
             runOnUiThread(new Runnable() {
                 @Override
@@ -192,7 +201,7 @@ public class Client extends ActionBarActivity {
 
         @Override
         public void messageSent(IoSession session, Object message) throws Exception {
-            Log.e("Session", "Message send " +  session.getId() + " " + message.toString() );
+            Log.e("Client", "Message send " +  session.getId() + " " + message.toString() );
         }
 
     };
